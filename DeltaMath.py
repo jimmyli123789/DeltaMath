@@ -30,7 +30,7 @@ running = False
 import math as _math
 
 # ── AI ───────────────────────────────────────────────────────────────────────
-def ask_ai(image, model):
+def ask_ai(image, model, max_tokens=500):
     if not OPENROUTER_API_KEY:
         raise Exception("API Key is missing! Add it via the Settings tab.")
 
@@ -46,14 +46,14 @@ def ask_ai(image, model):
         headers=headers,
         json={
             "model": model,
-            "max_tokens": 500,
+            "max_tokens": max_tokens,
             "messages": [
                 {
                     "role": "system",
                     "content": (
                         "You are an expert math solver. Solve the problem in the image step by step.\n"
                         "Show all your work clearly. Label every variable. Do not skip steps.\n"
-                        "At the very end, state the final answer explicitly.\n"
+                        "IMPORTANT: Always write your final answer on its own line at the end, clearly labeled 'Final answer: <value>'. Do this even if your reasoning is incomplete or cut short — the final answer line is the highest priority.\n"
                         "Use full precision in all intermediate calculations — never round until the final step.\n\n"
                         "SELF-CHECK — before writing your final answer:\n"
                         "- Recompute the answer a second time from scratch using a different approach or order\n"
@@ -90,6 +90,18 @@ def ask_ai(image, model):
 
     reasoning = r1.json()['choices'][0]['message']['content'].strip()
 
+    import re as _re
+    precision_str = ""
+    rl = reasoning.lower()
+    if "nearest thousandth" in rl:
+        precision_str = "Round to exactly 3 decimal places."
+    elif "nearest hundredth" in rl or "nearest 100th" in rl:
+        precision_str = "Round to exactly 2 decimal places."
+    elif "nearest tenth" in rl or "nearest 10th" in rl:
+        precision_str = "Round to exactly 1 decimal place."
+    elif any(w in rl for w in ["nearest inch", "nearest cm", "nearest integer", "nearest whole", "nearest foot"]):
+        precision_str = "Round to a whole number, no decimal point."
+
     # ── Call 2: Extract just the final answer in DeltaMath format ─────────────
     r2 = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -110,13 +122,14 @@ def ask_ai(image, model):
                         "- Square roots: write sqrt(...)  →  sqrt(2)/2  or  3sqrt(3)\n"
                         "- Two-component answers (rectangular form): separate with comma  →  3sqrt(3), 0\n"
                         "- Multiple solutions: separate with comma  →  3,-3\n"
-                        "- Decimal answers: include correct number of decimal places  →  38.3\n"
+                        "- Decimal answers: use EXACTLY the number of decimal places specified below\n"
+                        f"- {precision_str if precision_str else 'Use however many decimal places the problem requires.'}\n"
                         "- No LaTeX, no markdown, no words, no units"
                     )
                 },
                 {
                     "role": "user",
-                    "content": f"Extract and format the final answer from this solution:\n\n{reasoning}"
+                    "content": f"Extract and format the final answer from this solution. Look for a line starting with 'Final answer:' first, otherwise use the last computed value:\n\n{reasoning}"
                 }
             ]
         }
@@ -126,12 +139,30 @@ def ask_ai(image, model):
         raise Exception(f"API error (call 2): {r2.json().get('error', {}).get('message', str(r2.json()))}")
 
     answer = r2.json()['choices'][0]['message']['content'].strip()
-    answer = answer.strip('`"\' ')
+
+    answer = answer.strip('$`"\' ')
+
+    if any(c in answer for c in ['*', '^', '(']) and not any(w in answer for w in ['pi', 'sqrt', ',']):
+        try:
+            expr = answer.replace('^', '**')
+            value = eval(expr, {"__builtins__": {}, "_math": _math})
+            if precision_str.startswith("Round to exactly 3"):
+                answer = f"{value:.3f}"
+            elif precision_str.startswith("Round to exactly 2"):
+                answer = f"{value:.2f}"
+            elif precision_str.startswith("Round to exactly 1"):
+                answer = f"{value:.1f}"
+            elif precision_str.startswith("Round to a whole"):
+                answer = str(round(value))
+            else:
+                answer = f"{value:.10f}".rstrip('0').rstrip('.')
+        except Exception:
+            pass
 
     return answer, reasoning
 
 
-def click_nextButton(image, confidence_level=0.5):
+def click_nextButton(image, confidence_level=0.8):
     print("Scanning screen for Next button...")
     try:
         button_loc = pyautogui.locateCenterOnScreen(image, confidence=confidence_level)
@@ -337,6 +368,18 @@ class App(tk.Tk):
                           command=lambda v: self.delay_label.config(text=f"{int(float(v))}s"))
         slider.pack(side="left", fill="x", expand=True)
 
+        self._section_label(p, "MAX TOKENS (REASONING DEPTH)")
+        tok_row = tk.Frame(p, bg=BG2)
+        tok_row.pack(fill="x", padx=14, pady=(0, 14))
+        self.max_tokens_var = tk.IntVar(value=500)
+        self.max_tokens_label = tk.Label(tok_row, text="500", bg=BG2, fg=GOLD, font=FONT, width=5)
+        self.max_tokens_label.pack(side="right")
+        tok_slider = tk.Scale(tok_row, from_=200, to=2000, resolution=100, orient="horizontal",
+                              variable=self.max_tokens_var, bg=BG2, fg=TEXT, troughcolor=BG3,
+                              highlightthickness=0, bd=0, showvalue=False,
+                              command=lambda v: self.max_tokens_label.config(text=str(int(float(v)))))
+        tok_slider.pack(side="left", fill="x", expand=True)
+
         # ── Next button click coords ─────────────────────────────────────────
         self._section_label(p, "NEXT BUTTON COORDS (X, Y)")
         coords_row = tk.Frame(p, bg=BG2)
@@ -469,19 +512,23 @@ class App(tk.Tk):
         canvas = tk.Canvas(overlay, cursor="cross", bg='black', highlightthickness=0)
         canvas.pack(fill='both', expand=True)
 
+        # Screenshot once, draw once — never redrawn
         bg_shot = pyautogui.screenshot()
         bg_photo = ImageTk.PhotoImage(bg_shot)
         canvas.create_image(0, 0, anchor='nw', image=bg_photo)
-        canvas._bg_photo = bg_photo
+        canvas._bg_photo = bg_photo  # prevent GC
 
+        # Single dim overlay covering whole screen
         dim = canvas.create_rectangle(0, 0, sw, sh, fill='black', stipple='gray50', outline='')
 
+        # Pre-create the 4 dim cutout rects and dashed border — just move them on drag
         top_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         bot_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         left_dim   = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         right_dim  = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         sel_border = canvas.create_rectangle(0, 0, 0, 0, outline='white', width=2, dash=(6, 3))
 
+        # Raise border above dims
         canvas.tag_raise(sel_border)
 
         coords = {}
@@ -489,6 +536,7 @@ class App(tk.Tk):
         def on_press(e):
             coords['x1'] = e.x
             coords['y1'] = e.y
+            # Hide full-screen dim now that we have a selection starting
             canvas.itemconfig(dim, state='hidden')
 
         def on_drag(e):
@@ -564,7 +612,7 @@ class App(tk.Tk):
             y = int(self.next_y_var.get())
             return x, y
         except ValueError:
-            return 1770, 202
+            return 1770, 202  # fallback default
 
     def _run_loop(self):
         awaiting_next_button = False
@@ -577,8 +625,9 @@ class App(tk.Tk):
                     self.safe_log("Taking screenshot...", "muted")
                     image = screenshot_question()
                     self.safe_log("Calling AI...", "muted")
-                    answer, reasoning = ask_ai(image, self.model_var.get())
+                    answer, reasoning = ask_ai(image, self.model_var.get(), self.max_tokens_var.get())
 
+                    # Log the model's reasoning so you can audit it
                     for line in reasoning.strip().splitlines():
                         self.safe_log(f"  {line}", "muted")
                     self.safe_log(f"→ Answer: {answer}", "gold")
@@ -597,7 +646,7 @@ class App(tk.Tk):
                     for _ in range(4):
                         pyautogui.click(nx, ny)
                         time.sleep(0.5)
-                    awaiting_next_button = False
+                    awaiting_next_button = False  # ← fixed: reset so next question gets solved
 
             except Exception as e:
                 self.safe_log(f"Error: {e}", "red")
