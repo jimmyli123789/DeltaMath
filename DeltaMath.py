@@ -5,6 +5,7 @@ import base64
 import io
 import time
 import threading
+import hashlib
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image
@@ -20,6 +21,31 @@ except ImportError:
 # ── Config ───────────────────────────────────────────────────────────────────
 OPENROUTER_API_KEY = ""
 MODEL = "google/gemini-2.5-flash"
+
+
+# ── Supabase Auth Config ──────────────────────────────────────────────────────
+SUPABASE_URL = ""
+SUPABASE_KEY = ""
+
+
+def check_credentials(username, password):
+    pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users",
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}"
+            },
+            params={
+                "username": f"eq.{username}",
+                "password_hash": f"eq.{pw_hash}"
+            },
+            timeout=5
+        )
+        return r.status_code == 200 and len(r.json()) > 0
+    except Exception as e:
+        return False
 
 
 # ── State ────────────────────────────────────────────────────────────────────
@@ -157,12 +183,11 @@ def ask_ai(image, model, max_tokens=500):
             else:
                 answer = f"{value:.10f}".rstrip('0').rstrip('.')
         except Exception:
-            pass
-
+                pass
     return answer, reasoning
 
 
-def click_nextButton(image, confidence_level=0.8):
+def click_nextButton(image, confidence_level=0.5):
     print("Scanning screen for Next button...")
     try:
         button_loc = pyautogui.locateCenterOnScreen(image, confidence=confidence_level)
@@ -174,7 +199,7 @@ def click_nextButton(image, confidence_level=0.8):
     return False
 
 
-def click_textBox(image, confidence_level=0.8):
+def click_textBox(image, confidence_level=0.5):
     print("Scanning screen for Submit button offset...")
     try:
         button_loc = pyautogui.locateCenterOnScreen(image, confidence=confidence_level)
@@ -512,23 +537,19 @@ class App(tk.Tk):
         canvas = tk.Canvas(overlay, cursor="cross", bg='black', highlightthickness=0)
         canvas.pack(fill='both', expand=True)
 
-        # Screenshot once, draw once — never redrawn
         bg_shot = pyautogui.screenshot()
         bg_photo = ImageTk.PhotoImage(bg_shot)
         canvas.create_image(0, 0, anchor='nw', image=bg_photo)
-        canvas._bg_photo = bg_photo  # prevent GC
+        canvas._bg_photo = bg_photo
 
-        # Single dim overlay covering whole screen
-        dim = canvas.create_rectangle(0, 0, sw, sh, fill='black', stipple='gray50', outline='')
+        dim = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
 
-        # Pre-create the 4 dim cutout rects and dashed border — just move them on drag
         top_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         bot_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         left_dim   = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         right_dim  = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         sel_border = canvas.create_rectangle(0, 0, 0, 0, outline='white', width=2, dash=(6, 3))
 
-        # Raise border above dims
         canvas.tag_raise(sel_border)
 
         coords = {}
@@ -536,7 +557,6 @@ class App(tk.Tk):
         def on_press(e):
             coords['x1'] = e.x
             coords['y1'] = e.y
-            # Hide full-screen dim now that we have a selection starting
             canvas.itemconfig(dim, state='hidden')
 
         def on_drag(e):
@@ -612,8 +632,7 @@ class App(tk.Tk):
             y = int(self.next_y_var.get())
             return x, y
         except ValueError:
-            return 1770, 202  # fallback default
-
+                return 1770, 202
     def _run_loop(self):
         awaiting_next_button = False
         self.safe_log("Starting in 3 seconds — switch to your browser now...", "gold")
@@ -627,7 +646,6 @@ class App(tk.Tk):
                     self.safe_log("Calling AI...", "muted")
                     answer, reasoning = ask_ai(image, self.model_var.get(), self.max_tokens_var.get())
 
-                    # Log the model's reasoning so you can audit it
                     for line in reasoning.strip().splitlines():
                         self.safe_log(f"  {line}", "muted")
                     self.safe_log(f"→ Answer: {answer}", "gold")
@@ -646,7 +664,7 @@ class App(tk.Tk):
                     for _ in range(4):
                         pyautogui.click(nx, ny)
                         time.sleep(0.5)
-                    awaiting_next_button = False  # ← fixed: reset so next question gets solved
+                    awaiting_next_button = False
 
             except Exception as e:
                 self.safe_log(f"Error: {e}", "red")
@@ -659,6 +677,178 @@ class App(tk.Tk):
                 time.sleep(0.1)
 
 
+# ── Auth helpers ─────────────────────────────────────────────────────────────
+def register_user(username, password):
+    pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users",
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+            params={"username": f"eq.{username}"},
+            timeout=5
+        )
+        if r.status_code == 200 and len(r.json()) > 0:
+            return False, "Username already taken."
+
+        r2 = requests.post(
+            f"{SUPABASE_URL}/rest/v1/users",
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            },
+            json={"username": username, "password_hash": pw_hash},
+            timeout=5
+        )
+        if r2.status_code in (200, 201):
+            return True, ""
+        return False, f"Server error: {r2.status_code}"
+    except Exception as e:
+        return False, f"Connection error: {e}"
+
+
+# ── Login Window ──────────────────────────────────────────────────────────────
+class LoginWindow(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("DeltaMath Macro — Login")
+        self.geometry("360x300")
+        self.resizable(True, True)
+        self.configure(bg=BG)
+        self.success = False
+        self.wm_attributes("-topmost", True)
+        self._build_header()
+        self._show_login()
+
+    def _build_header(self):
+        bar = tk.Frame(self, bg="#0d0d0d", height=48)
+        bar.pack(fill="x")
+        bar.pack_propagate(False)
+        left = tk.Frame(bar, bg="#0d0d0d")
+        left.pack(side="left", padx=12, pady=8)
+        tk.Label(left, text="D", bg=GOLD, fg="#111", font=("Consolas", 11, "bold"), width=2).pack(side="left")
+        info = tk.Frame(left, bg="#0d0d0d")
+        info.pack(side="left", padx=8)
+        tk.Label(info, text="Deltamath Automation", bg="#0d0d0d", fg=TEXT,
+                 font=("Lucida Console", 10, "bold")).pack(anchor="w")
+        self.subtitle = tk.Label(info, text="Sign in to continue", bg="#0d0d0d", fg=MUTED, font=FONT_SM)
+        self.subtitle.pack(anchor="w")
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
+        self.body_frame = None
+
+    def _clear_body(self):
+        if self.body_frame:
+            self.body_frame.destroy()
+        self.body_frame = tk.Frame(self, bg=BG2)
+        self.body_frame.pack(fill="both", expand=True, padx=20, pady=16)
+
+    def _field(self, parent, label, show=None):
+        tk.Label(parent, text=label, bg=BG2, fg=MUTED, font=FONT_SM).pack(anchor="w")
+        row = tk.Frame(parent, bg=BG3, highlightthickness=1, highlightbackground=BORDER)
+        row.pack(fill="x", pady=(4, 12))
+        entry = tk.Entry(row, bg=BG3, fg=TEXT, font=FONT, bd=0, insertbackground=TEXT,
+                         show=show if show else "")
+        entry.pack(fill="x", padx=10, pady=8)
+        return entry
+
+    def _error(self, parent):
+        lbl = tk.Label(parent, text="", bg=BG2, fg=RED, font=FONT_SM)
+        lbl.pack(anchor="w", pady=(0, 6))
+        return lbl
+
+    # ── Login form ────────────────────────────────────────────────────────────
+    def _show_login(self):
+        self.subtitle.config(text="Sign in to continue")
+        self._clear_body()
+        self.geometry("500x500")
+        p = self.body_frame
+
+        self.u = self._field(p, "USERNAME")
+        self.u.focus()
+        self.pw = self._field(p, "PASSWORD", show="•")
+        self.pw.bind("<Return>", lambda e: self._do_login())
+        self.err = self._error(p)
+
+        tk.Button(p, text="Sign In", bg=GREEN, fg="white", font=("Consolas", 11, "bold"),
+                  bd=0, relief="flat", cursor="hand2", pady=8,
+                  command=self._do_login).pack(fill="x")
+
+        tk.Button(p, text="Create an account", bg=BG2, fg=MUTED, font=FONT_SM,
+                  bd=0, relief="flat", cursor="hand2", pady=6,
+                  command=self._show_register).pack()
+
+    def _do_login(self):
+        u, pw = self.u.get().strip(), self.pw.get()
+        if not u or not pw:
+            self.err.config(text="Please fill in all fields.")
+            return
+        self.err.config(text="Signing in...")
+        threading.Thread(target=self._auth_thread, args=(u, pw), daemon=True).start()
+
+    def _auth_thread(self, u, pw):
+        ok = check_credentials(u, pw)
+        self.after(0, lambda: self._on_login(ok))
+
+    def _on_login(self, ok):
+        if ok:
+            self.success = True
+            self.destroy()
+        else:
+            self.err.config(text="Incorrect username or password.")
+            self.pw.delete(0, "end")
+
+    # ── Register form ─────────────────────────────────────────────────────────
+    def _show_register(self):
+        self.subtitle.config(text="Create an account")
+        self._clear_body()
+        self.geometry("500x500")
+        p = self.body_frame
+        self.ru.focus()
+        self.rpw = self._field(p, "PASSWORD", show="•")
+        self.rpw2 = self._field(p, "CONFIRM PASSWORD", show="•")
+        self.rpw2.bind("<Return>", lambda e: self._do_register())
+        self.rerr = self._error(p)
+
+        tk.Button(p, text="Create Account", bg=GREEN, fg="white", font=("Consolas", 11, "bold"),
+                  bd=0, relief="flat", cursor="hand2", pady=8,
+                  command=self._do_register).pack(fill="x")
+
+        tk.Button(p, text="← Back to sign in", bg=BG2, fg=MUTED, font=FONT_SM,
+                  bd=0, relief="flat", cursor="hand2", pady=6,
+                  command=lambda: [self.geometry("360x300"), self._show_login()]).pack()
+
+    def _do_register(self):
+        u = self.ru.get().strip()
+        pw = self.rpw.get()
+        pw2 = self.rpw2.get()
+        if not u or not pw or not pw2:
+            self.rerr.config(text="Please fill in all fields.")
+            return
+        if pw != pw2:
+            self.rerr.config(text="Passwords do not match.")
+            return
+        if len(pw) < 6:
+            self.rerr.config(text="Password must be at least 6 characters.")
+            return
+        self.rerr.config(text="Creating account...")
+        threading.Thread(target=self._reg_thread, args=(u, pw), daemon=True).start()
+
+    def _reg_thread(self, u, pw):
+        ok, msg = register_user(u, pw)
+        self.after(0, lambda: self._on_register(ok, msg))
+
+    def _on_register(self, ok, msg):
+        if ok:
+            self.success = True
+            self.destroy()
+        else:
+            self.rerr.config(text=msg)
+
+
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+    login = LoginWindow()
+    login.mainloop()
+    if login.success:
+        app = App()
+        app.mainloop()
