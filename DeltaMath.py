@@ -89,6 +89,7 @@ def ask_ai(image, model):
 
     raw = result['choices'][0]['message']['content'].strip()
 
+    # Parse FORMULA and PRECISION from response
     formula = None
     precision = 0
     for line in raw.splitlines():
@@ -103,8 +104,10 @@ def ask_ai(image, model):
     if not formula:
         raise Exception(f"Could not parse FORMULA from AI response:\n{raw}")
 
+    # Python computes the answer — no LLM arithmetic errors
     try:
         if precision == -1:
+            # Symbolic/radical form — FORMULA is already the answer string
             answer = eval(formula, {"math": _math, "__builtins__": {}}) if not formula.startswith("'") else formula.strip("'")
         else:
             value = eval(formula, {"math": _math, "__builtins__": {}})
@@ -159,7 +162,7 @@ def submit_answer(answer, text_box_image='SubmitAnswer.png'):
         time.sleep(0.1)
         pyautogui.hotkey('ctrl', 'a')
         pyperclip.copy(answer)
-        pyautogui.hotkey('ctrl', 'v')  
+        pyautogui.hotkey('ctrl', 'v')   # paste instead of typewrite — handles ^, /, (, ) etc.
         time.sleep(0.1)
         pyautogui.press('enter')
         time.sleep(0.4)
@@ -435,6 +438,8 @@ class App(tk.Tk):
         time.sleep(0.3)
         self.safe_log("Draw a box around the question area...", "gold")
 
+        import PIL.ImageTk as ImageTk
+
         overlay = tk.Toplevel()
         overlay.attributes('-fullscreen', True)
         overlay.attributes('-alpha', 1.0)
@@ -445,59 +450,49 @@ class App(tk.Tk):
         sw = overlay.winfo_screenwidth()
         sh = overlay.winfo_screenheight()
 
-        canvas = tk.Canvas(overlay, cursor="cross", bg='black',
-                           highlightthickness=0)
+        canvas = tk.Canvas(overlay, cursor="cross", bg='black', highlightthickness=0)
         canvas.pack(fill='both', expand=True)
 
-        import PIL.ImageTk as ImageTk
+        # Screenshot once, draw once — never redrawn
         bg_shot = pyautogui.screenshot()
-        bg_image = ImageTk.PhotoImage(bg_shot)
+        bg_photo = ImageTk.PhotoImage(bg_shot)
+        canvas.create_image(0, 0, anchor='nw', image=bg_photo)
+        canvas._bg_photo = bg_photo  # prevent GC
 
-        canvas.create_image(0, 0, anchor='nw', image=bg_image)
+        # Single dim overlay covering whole screen
         dim = canvas.create_rectangle(0, 0, sw, sh, fill='black', stipple='gray50', outline='')
 
+        # Pre-create the 4 dim cutout rects and dashed border — just move them on drag
+        top_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
+        bot_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
+        left_dim   = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
+        right_dim  = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
+        sel_border = canvas.create_rectangle(0, 0, 0, 0, outline='white', width=2, dash=(6, 3))
+
+        # Raise border above dims
+        canvas.tag_raise(sel_border)
+
         coords = {}
-        rect_id = None
-        bright_id = None
-        dash_id = None
 
         def on_press(e):
             coords['x1'] = e.x
             coords['y1'] = e.y
+            # Hide full-screen dim now that we have a selection starting
+            canvas.itemconfig(dim, state='hidden')
 
         def on_drag(e):
-            nonlocal rect_id, bright_id, dash_id
             if 'x1' not in coords:
                 return
             x1, y1 = coords['x1'], coords['y1']
             x2, y2 = e.x, e.y
+            lx, rx = min(x1, x2), max(x1, x2)
+            ty, by = min(y1, y2), max(y1, y2)
 
-
-            if rect_id:
-                canvas.delete(rect_id)
-            if bright_id:
-                canvas.delete(bright_id)
-            if dash_id:
-                canvas.delete(dash_id)
-
-
-            bright_id = canvas.create_image(0, 0, anchor='nw', image=bg_image)
-
-            canvas.delete(dim)
-            canvas.create_rectangle(0, 0, sw, min(y1, y2),
-                                    fill='black', stipple='gray50', outline='')
-            canvas.create_rectangle(0, max(y1, y2), sw, sh,
-                                    fill='black', stipple='gray50', outline='')
-            canvas.create_rectangle(0, min(y1, y2), min(x1, x2), max(y1, y2),
-                                    fill='black', stipple='gray50', outline='')
-            canvas.create_rectangle(max(x1, x2), min(y1, y2), sw, max(y1, y2),
-                                    fill='black', stipple='gray50', outline='')
-
-            # Dashed border
-            dash_id = canvas.create_rectangle(
-                min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2),
-                outline='white', width=2, dash=(6, 3)
-            )
+            canvas.coords(top_dim,   0,  0,  sw, ty)
+            canvas.coords(bot_dim,   0,  by, sw, sh)
+            canvas.coords(left_dim,  0,  ty, lx, by)
+            canvas.coords(right_dim, rx, ty, sw, by)
+            canvas.coords(sel_border, lx, ty, rx, by)
 
         def on_release(e):
             coords['x2'] = e.x
@@ -508,9 +503,6 @@ class App(tk.Tk):
         canvas.bind('<B1-Motion>', on_drag)
         canvas.bind('<ButtonRelease-1>', on_release)
         canvas.bind('<Escape>', lambda e: overlay.destroy())
-
-
-        canvas._bg_image = bg_image
 
         overlay.wait_window()
         self.deiconify()
@@ -561,7 +553,7 @@ class App(tk.Tk):
             y = int(self.next_y_var.get())
             return x, y
         except ValueError:
-            return 1770, 202 
+            return 1770, 202  # fallback default
 
     def _run_loop(self):
         awaiting_next_button = False
@@ -576,6 +568,7 @@ class App(tk.Tk):
                     self.safe_log("Calling AI...", "muted")
                     answer, reasoning = ask_ai(image, self.model_var.get())
 
+                    # Log the model's reasoning so you can audit it
                     for line in reasoning.strip().splitlines():
                         self.safe_log(f"  {line}", "muted")
                     self.safe_log(f"→ Answer: {answer}", "gold")
@@ -594,7 +587,7 @@ class App(tk.Tk):
                     for _ in range(4):
                         pyautogui.click(nx, ny)
                         time.sleep(0.5)
-                    awaiting_next_button = False  
+                    awaiting_next_button = False  # ← fixed: reset so next question gets solved
 
             except Exception as e:
                 self.safe_log(f"Error: {e}", "red")
