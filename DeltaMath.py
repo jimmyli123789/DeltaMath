@@ -38,84 +38,97 @@ def ask_ai(image, model):
     image.save(buffer, format="PNG")
     img_b64 = base64.b64encode(buffer.getvalue()).decode()
 
-    response = requests.post(
+    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
+
+    # ── Call 1: Solve the problem, show full reasoning ────────────────────────
+    r1 = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
-        headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+        headers=headers,
         json={
             "model": model,
-            "max_tokens": 300,
+            "max_tokens": 500,
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "You are a math solver for DeltaMath. Your job is to set up the formula, not compute it.\n"
-                        "Respond in exactly this format:\n"
-                        "WORK: <2-3 lines: list every known side+angle, explicitly state which side is opposite which angle, then state the formula>\n"
-                        "FORMULA: <a single valid Python math expression using math.sin, math.cos, math.tan, math.radians, math.sqrt, math.pi>\n"
-                        "PRECISION: <integer: 0 for nearest integer, 1 for nearest 10th, 2 for nearest 100th. Use -1 if answer must stay in radical/symbolic form>\n\n"
-                        "IMPORTANT — RADICAL/SYMBOLIC FORM:\n"
-                        "- If the problem says 'simplest radical form', 'exact form', or 'leave in terms of pi', set PRECISION: -1\n"
-                        "- When PRECISION is -1, FORMULA must be a Python string expression that returns the symbolic answer directly\n"
-                        "- Example: polar (3sqrt(3), 0) to rectangular → x = 3sqrt(3), y = 0 → FORMULA: '3sqrt(3), 0'\n"
-                        "- Example: answer is 2pi/3 → FORMULA: '2pi/3'\n"
-                        "- Example: answer is sqrt(2)/2 → FORMULA: 'sqrt(2)/2'\n"
-                        "- For radical form, think symbolically — do NOT compute decimals\n\n"
-                        "LAW OF SINES — CRITICAL RULES:\n"
-                        "- Side a is opposite angle A, side b opposite angle B, side c opposite angle C\n"
-                        "- Formula: unknown = known_side * sin(angle_opposite_unknown) / sin(angle_opposite_known)\n"
-                        "- Example: find t, given s=85, S=28°, T=87° → t = 85 * sin(87°) / sin(28°)\n"
-                        "- The denominator is ALWAYS the angle opposite the KNOWN side, never the computed third angle\n\n"
-                        "Other rules:\n"
-                        "- FORMULA is a single Python eval()-able expression, no equals sign\n"
-                        "- Always wrap degrees in math.radians() before trig functions\n"
-                        "- PRECISION must be the very last line\n"
-                        "- No LaTeX, no markdown"
+                        "You are an expert math solver. Solve the problem in the image step by step.\n"
+                        "Show all your work clearly. Label every variable. Do not skip steps.\n"
+                        "At the very end, state the final answer explicitly.\n"
+                        "Use full precision in all intermediate calculations — never round until the final step.\n\n"
+                        "SELF-CHECK — before writing your final answer:\n"
+                        "- Recompute the answer a second time from scratch using a different approach or order\n"
+                        "- If both computations agree, output that value\n"
+                        "- If they disagree, find the error and correct it\n\n"
+                        "SEQUENCES — critical rules:\n"
+                        "- nth term of geometric sequence: a_n = a_1 * r^(n-1). For the 7th term, exponent is 6, NOT 7\n"
+                        "- Verify r by checking a_2/a_1 AND a_3/a_2 — if they differ it is arithmetic, not geometric\n"
+                        "- nth term of arithmetic sequence: a_n = a_1 + (n-1)*d\n\n"
+                        "LAW OF SINES — always use: unknown = known_side * sin(opposite_angle_of_unknown) / sin(opposite_angle_of_known)\n"
+                        "The denominator is ALWAYS the angle directly opposite the known side.\n\n"
+                        "Read the problem carefully for precision instructions:\n"
+                        "- 'nearest inch/cm/integer' → round to whole number\n"
+                        "- 'nearest 10th' → 1 decimal place\n"
+                        "- 'nearest 100th' / 'nearest thousandth' → 3 decimal places\n"
+                        "- 'in terms of pi' → express symbolically with pi (e.g. pi/6)\n"
+                        "- 'simplest radical form' / 'exact form' → leave as symbolic expression (e.g. 3sqrt(3))\n"
+                        "- 'rectangular form' with two components → give both x and y values"
                     )
                 },
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Set up the formula for the math problem in this image."},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                        {"type": "text", "text": "Solve this problem step by step."}
                     ]
                 }
             ]
         }
     )
 
-    result = response.json()
-    if 'choices' not in result:
-        raise Exception(f"API error: {result.get('error', {}).get('message', str(result))}")
+    if 'choices' not in r1.json():
+        raise Exception(f"API error (call 1): {r1.json().get('error', {}).get('message', str(r1.json()))}")
 
-    raw = result['choices'][0]['message']['content'].strip()
+    reasoning = r1.json()['choices'][0]['message']['content'].strip()
 
-    # Parse FORMULA and PRECISION from response
-    formula = None
-    precision = 0
-    for line in raw.splitlines():
-        if line.startswith("FORMULA:"):
-            formula = line.split("FORMULA:", 1)[1].strip()
-        elif line.startswith("PRECISION:"):
-            try:
-                precision = int(line.split("PRECISION:", 1)[1].strip())
-            except ValueError:
-                precision = 0
+    # ── Call 2: Extract just the final answer in DeltaMath format ─────────────
+    r2 = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers=headers,
+        json={
+            "model": model,
+            "max_tokens": 50,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You extract the final answer from a math solution and format it for DeltaMath input.\n"
+                        "Output ONLY the raw answer string — nothing else. No explanation, no punctuation, no units.\n\n"
+                        "FORMAT RULES:\n"
+                        "- Fractions: use /  →  3/4\n"
+                        "- Exponents: use ^  →  x^2\n"
+                        "- Pi: write pi  →  pi/6  or  2pi\n"
+                        "- Square roots: write sqrt(...)  →  sqrt(2)/2  or  3sqrt(3)\n"
+                        "- Two-component answers (rectangular form): separate with comma  →  3sqrt(3), 0\n"
+                        "- Multiple solutions: separate with comma  →  3,-3\n"
+                        "- Decimal answers: include correct number of decimal places  →  38.3\n"
+                        "- No LaTeX, no markdown, no words, no units"
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Extract and format the final answer from this solution:\n\n{reasoning}"
+                }
+            ]
+        }
+    )
 
-    if not formula:
-        raise Exception(f"Could not parse FORMULA from AI response:\n{raw}")
+    if 'choices' not in r2.json():
+        raise Exception(f"API error (call 2): {r2.json().get('error', {}).get('message', str(r2.json()))}")
 
-    # Python computes the answer — no LLM arithmetic errors
-    try:
-        if precision == -1:
-            # Symbolic/radical form — FORMULA is already the answer string
-            answer = eval(formula, {"math": _math, "__builtins__": {}}) if not formula.startswith("'") else formula.strip("'")
-        else:
-            value = eval(formula, {"math": _math, "__builtins__": {}})
-            answer = f"{value:.{precision}f}"
-    except Exception as e:
-        raise Exception(f"Failed to eval formula '{formula}': {e}")
+    answer = r2.json()['choices'][0]['message']['content'].strip()
+    answer = answer.strip('`"\' ')
 
-    return answer, raw
+    return answer, reasoning
 
 
 def click_nextButton(image, confidence_level=0.5):
@@ -157,17 +170,20 @@ def screenshot_question():
     return pyautogui.screenshot(region=region)
 
 
-def submit_answer(answer, text_box_image='SubmitAnswer.png'):
-    if click_textBox(text_box_image):
-        time.sleep(0.1)
-        pyautogui.hotkey('ctrl', 'a')
-        pyperclip.copy(answer)
-        pyautogui.hotkey('ctrl', 'v')   # paste instead of typewrite — handles ^, /, (, ) etc.
-        time.sleep(0.1)
-        pyautogui.press('enter')
-        time.sleep(0.4)
-        pyautogui.press('enter')
-        return True
+def submit_answer(answer, text_box_images=('SubmitAnswer.png', 'SubmitAnswer2.png')):
+    if isinstance(text_box_images, str):
+        text_box_images = (text_box_images,)
+    for img in text_box_images:
+        if click_textBox(img):
+            time.sleep(0.1)
+            pyautogui.hotkey('ctrl', 'a')
+            pyperclip.copy(answer)
+            pyautogui.hotkey('ctrl', 'v')
+            time.sleep(0.1)
+            pyautogui.press('enter')
+            time.sleep(0.4)
+            pyautogui.press('enter')
+            return True
     return False
 
 
@@ -453,23 +469,19 @@ class App(tk.Tk):
         canvas = tk.Canvas(overlay, cursor="cross", bg='black', highlightthickness=0)
         canvas.pack(fill='both', expand=True)
 
-        # Screenshot once, draw once — never redrawn
         bg_shot = pyautogui.screenshot()
         bg_photo = ImageTk.PhotoImage(bg_shot)
         canvas.create_image(0, 0, anchor='nw', image=bg_photo)
-        canvas._bg_photo = bg_photo  # prevent GC
+        canvas._bg_photo = bg_photo
 
-        # Single dim overlay covering whole screen
         dim = canvas.create_rectangle(0, 0, sw, sh, fill='black', stipple='gray50', outline='')
 
-        # Pre-create the 4 dim cutout rects and dashed border — just move them on drag
         top_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         bot_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         left_dim   = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         right_dim  = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         sel_border = canvas.create_rectangle(0, 0, 0, 0, outline='white', width=2, dash=(6, 3))
 
-        # Raise border above dims
         canvas.tag_raise(sel_border)
 
         coords = {}
@@ -477,7 +489,6 @@ class App(tk.Tk):
         def on_press(e):
             coords['x1'] = e.x
             coords['y1'] = e.y
-            # Hide full-screen dim now that we have a selection starting
             canvas.itemconfig(dim, state='hidden')
 
         def on_drag(e):
@@ -553,7 +564,7 @@ class App(tk.Tk):
             y = int(self.next_y_var.get())
             return x, y
         except ValueError:
-            return 1770, 202  # fallback default
+            return 1770, 202
 
     def _run_loop(self):
         awaiting_next_button = False
@@ -568,7 +579,6 @@ class App(tk.Tk):
                     self.safe_log("Calling AI...", "muted")
                     answer, reasoning = ask_ai(image, self.model_var.get())
 
-                    # Log the model's reasoning so you can audit it
                     for line in reasoning.strip().splitlines():
                         self.safe_log(f"  {line}", "muted")
                     self.safe_log(f"→ Answer: {answer}", "gold")
@@ -587,7 +597,7 @@ class App(tk.Tk):
                     for _ in range(4):
                         pyautogui.click(nx, ny)
                         time.sleep(0.5)
-                    awaiting_next_button = False  # ← fixed: reset so next question gets solved
+                    awaiting_next_button = False
 
             except Exception as e:
                 self.safe_log(f"Error: {e}", "red")
