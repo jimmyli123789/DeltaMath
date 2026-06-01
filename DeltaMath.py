@@ -6,9 +6,36 @@ import io
 import time
 import threading
 import hashlib
+import json
+import os
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image
+
+HISTORY_FILE = "history.json"
+
+
+# ── History helpers ───────────────────────────────────────────────────────────
+def load_history():
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_history_entry(entry):
+    history = load_history()
+    history.insert(0, entry)          
+    history = history[:200]           
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
+
+def img_to_b64(image):
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 try:
@@ -20,12 +47,11 @@ except ImportError:
 
 # ── Config ───────────────────────────────────────────────────────────────────
 OPENROUTER_API_KEY = ""
-MODEL = "google/gemini-2.5-flash"
-
+MODEL = ""
 
 # ── Supabase Auth Config ──────────────────────────────────────────────────────
-SUPABASE_URL = ""
-SUPABASE_KEY = ""
+SUPABASE_URL = ""   
+SUPABASE_KEY = ""                    
 
 
 def check_credentials(username, password):
@@ -116,6 +142,7 @@ def ask_ai(image, model, max_tokens=500):
 
     reasoning = r1.json()['choices'][0]['message']['content'].strip()
 
+    
     import re as _re
     precision_str = ""
     rl = reasoning.lower()
@@ -166,12 +193,16 @@ def ask_ai(image, model, max_tokens=500):
 
     answer = r2.json()['choices'][0]['message']['content'].strip()
 
+    
     answer = answer.strip('$`"\' ')
 
+   
     if any(c in answer for c in ['*', '^', '(']) and not any(w in answer for w in ['pi', 'sqrt', ',']):
         try:
+            # Convert ^ to ** for Python, then eval safely
             expr = answer.replace('^', '**')
             value = eval(expr, {"__builtins__": {}, "_math": _math})
+            # Apply detected precision
             if precision_str.startswith("Round to exactly 3"):
                 answer = f"{value:.3f}"
             elif precision_str.startswith("Round to exactly 2"):
@@ -181,9 +212,11 @@ def ask_ai(image, model, max_tokens=500):
             elif precision_str.startswith("Round to a whole"):
                 answer = str(round(value))
             else:
+               
                 answer = f"{value:.10f}".rstrip('0').rstrip('.')
         except Exception:
-                pass
+            pass  
+
     return answer, reasoning
 
 
@@ -227,6 +260,7 @@ def screenshot_question():
 
 
 def submit_answer(answer, text_box_images=('SubmitAnswer.png', 'SubmitAnswer2.png')):
+
     if isinstance(text_box_images, str):
         text_box_images = (text_box_images,)
     for img in text_box_images:
@@ -257,12 +291,25 @@ FONT     = ("Consolas", 10)
 FONT_SM  = ("Consolas", 9)
 FONT_LG  = ("Consolas", 12, "bold")
 
+THEMES = {
+    "dark": {
+        "BG": "#111111", "BG2": "#1a1a1a", "BG3": "#222222",
+        "BORDER": "#2a2a2a", "TEXT": "#e0e0e0", "MUTED": "#666666",
+        "TITLEBAR": "#0d0d0d", "icon": "☀"
+    },
+    "light": {
+        "BG": "#f0f0f0", "BG2": "#ffffff", "BG3": "#e4e4e4",
+        "BORDER": "#cccccc", "TEXT": "#111111", "MUTED": "#888888",
+        "TITLEBAR": "#dcdcdc", "icon": "🌙"
+    }
+}
+
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("DeltaMath Macro")
-        self.geometry("400x520")
+        self.geometry("520x800")
         self.resizable(True, True)
         self.configure(bg=BG)
 
@@ -272,6 +319,7 @@ class App(tk.Tk):
         self._build_settings_panel()
         self._build_hotkeys_panel()
         self._build_log_panel()
+        self._build_history_panel()
 
         self.show_tab("run")
 
@@ -301,6 +349,13 @@ class App(tk.Tk):
                               command=self.toggle_ontop)
         ontop_btn.pack(side="right", padx=12)
         self.ontop_btn = ontop_btn
+
+        self.theme_name = "dark"
+        self.theme_btn = tk.Button(bar, text="☀", bg="#0d0d0d", fg=MUTED,
+                                   font=("Consolas", 12), bd=0, relief="flat",
+                                   cursor="hand2", command=self.toggle_theme)
+        self.theme_btn.pack(side="right", padx=4)
+
         self.wm_attributes("-topmost", True)
 
         sep = tk.Frame(self, bg=BORDER, height=1)
@@ -313,13 +368,84 @@ class App(tk.Tk):
         self.ontop_btn.config(text=f"⊞ On Top: {'ON' if val else 'OFF'}",
                               fg=GOLD if val else MUTED)
 
+    def toggle_theme(self):
+        self.theme_name = "light" if self.theme_name == "dark" else "dark"
+        self.apply_theme()
+
+    def apply_theme(self):
+        global BG, BG2, BG3, BORDER, TEXT, MUTED
+        t = THEMES[self.theme_name]
+        BG, BG2, BG3 = t["BG"], t["BG2"], t["BG3"]
+        BORDER, TEXT, MUTED = t["BORDER"], t["TEXT"], t["MUTED"]
+        tb = t["TITLEBAR"]
+
+        self.theme_btn.config(text=t["icon"])
+        self.configure(bg=BG)
+
+        def recolor(widget):
+            cls = widget.winfo_class()
+            try:
+                if cls in ("Frame",):
+                    bg = widget.cget("bg")
+                    if bg in ("#111111", "#1a1a1a", "#222222", "#f0f0f0", "#ffffff", "#e4e4e4"):
+                        if bg in ("#111111", "#f0f0f0"):
+                            widget.config(bg=BG)
+                        elif bg in ("#1a1a1a", "#ffffff"):
+                            widget.config(bg=BG2)
+                        elif bg in ("#222222", "#e4e4e4"):
+                            widget.config(bg=BG3)
+                    elif bg in ("#0d0d0d", "#dcdcdc"):
+                        widget.config(bg=tb)
+                elif cls in ("Label",):
+                    bg = widget.cget("bg")
+                    fg = widget.cget("fg")
+                    new_bg = BG
+                    if bg in ("#1a1a1a", "#ffffff"): new_bg = BG2
+                    elif bg in ("#222222", "#e4e4e4"): new_bg = BG3
+                    elif bg in ("#0d0d0d", "#dcdcdc"): new_bg = tb
+                    elif bg in ("#111111", "#f0f0f0"): new_bg = BG
+                    new_fg = fg
+                    if fg in ("#e0e0e0", "#111111"): new_fg = TEXT
+                    elif fg in ("#666666", "#888888"): new_fg = MUTED
+                    widget.config(bg=new_bg, fg=new_fg)
+                elif cls in ("Button",):
+                    bg = widget.cget("bg")
+                    new_bg = bg
+                    if bg in ("#1a1a1a", "#ffffff"): new_bg = BG2
+                    elif bg in ("#222222", "#e4e4e4"): new_bg = BG3
+                    elif bg in ("#0d0d0d", "#dcdcdc"): new_bg = tb
+                    elif bg in ("#111111", "#f0f0f0"): new_bg = BG
+                    widget.config(bg=new_bg)
+                elif cls in ("Entry", "Text"):
+                    widget.config(bg=BG3, fg=TEXT, insertbackground=TEXT)
+                elif cls == "Scale":
+                    widget.config(bg=BG2, fg=TEXT, troughcolor=BG3)
+            except Exception:
+                pass
+            for child in widget.winfo_children():
+                recolor(child)
+
+        recolor(self)
+
+        
+        self.log_text.tag_config("gold", foreground=GOLD)
+        self.log_text.tag_config("green", foreground=GREEN)
+        self.log_text.tag_config("red", foreground=RED)
+        self.log_text.tag_config("muted", foreground=MUTED)
+        self.log_text.config(bg=BG3, fg=MUTED)
+
+        # Restyle combobox
+        style = ttk.Style()
+        style.configure("TCombobox", fieldbackground=BG3, background=BG3,
+                        foreground=TEXT, bordercolor=BORDER, arrowcolor=GOLD)
+
     def _build_tabs(self):
         self.tab_frame = tk.Frame(self, bg="#0d0d0d")
         self.tab_frame.pack(fill="x")
 
         self.tab_btns = {}
         tabs = [("▶  Run", "run"), ("⚙  Settings", "settings"),
-                ("⌨  Hotkeys", "hotkeys"), ("≡  Log", "log")]
+                ("⌨  Hotkeys", "hotkeys"), ("≡  Log", "log"), ("📋  History", "history")]
         for label, name in tabs:
             btn = tk.Button(self.tab_frame, text=label, bg="#0d0d0d", fg=MUTED,
                             font=FONT_SM, bd=0, relief="flat", padx=8, pady=8,
@@ -540,15 +666,18 @@ class App(tk.Tk):
         bg_shot = pyautogui.screenshot()
         bg_photo = ImageTk.PhotoImage(bg_shot)
         canvas.create_image(0, 0, anchor='nw', image=bg_photo)
-        canvas._bg_photo = bg_photo
+        canvas._bg_photo = bg_photo  
 
-        dim = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
+        # Single dim overlay covering whole screen
+        dim = canvas.create_rectangle(0, 0, sw, sh, fill='black', stipple='gray50', outline='')
 
+        # Pre-create the 4 dim cutout rects and dashed border — just move them on drag
         top_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         bot_dim    = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         left_dim   = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         right_dim  = canvas.create_rectangle(0, 0, 0, 0, fill='black', stipple='gray50', outline='')
         sel_border = canvas.create_rectangle(0, 0, 0, 0, outline='white', width=2, dash=(6, 3))
+
 
         canvas.tag_raise(sel_border)
 
@@ -632,7 +761,104 @@ class App(tk.Tk):
             y = int(self.next_y_var.get())
             return x, y
         except ValueError:
-                return 1770, 202
+            return 1770, 202  
+
+    def _build_history_panel(self):
+        import PIL.ImageTk as ImageTk
+        p = tk.Frame(self, bg=BG2)
+        self.panels["history"] = p
+
+        # Top bar
+        top = tk.Frame(p, bg=BG2)
+        top.pack(fill="x", padx=14, pady=(10, 4))
+        tk.Label(top, text="ANSWER HISTORY", bg=BG2, fg=MUTED, font=FONT_SM).pack(side="left")
+        tk.Button(top, text="Clear All", bg=BG3, fg=RED, font=FONT_SM, bd=0,
+                  relief="flat", cursor="hand2", command=self._clear_history).pack(side="right")
+
+        # Scrollable list on left, detail on right
+        pane = tk.Frame(p, bg=BG2)
+        pane.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+
+        # Left: entry list
+        list_frame = tk.Frame(pane, bg=BG3, width=140)
+        list_frame.pack(side="left", fill="y")
+        list_frame.pack_propagate(False)
+
+        self.hist_listbox = tk.Listbox(list_frame, bg=BG3, fg=TEXT, font=FONT_SM,
+                                       bd=0, relief="flat", selectbackground=GOLD,
+                                       selectforeground="#111", activestyle="none",
+                                       highlightthickness=0)
+        self.hist_listbox.pack(fill="both", expand=True)
+        self.hist_listbox.bind("<<ListboxSelect>>", self._on_history_select)
+
+        # Right: detail view
+        detail = tk.Frame(pane, bg=BG2)
+        detail.pack(side="left", fill="both", expand=True, padx=(8, 0))
+
+        self.hist_img_label = tk.Label(detail, bg=BG2, anchor="nw")
+        self.hist_img_label.pack(fill="x")
+
+        self.hist_answer_label = tk.Label(detail, text="", bg=BG2, fg=GOLD,
+                                          font=("Consolas", 11, "bold"), anchor="w")
+        self.hist_answer_label.pack(fill="x", pady=(6, 2))
+
+        self.hist_reasoning = tk.Text(detail, bg=BG3, fg=MUTED, font=FONT_SM,
+                                      bd=0, relief="flat", wrap="word",
+                                      state="disabled", height=10)
+        self.hist_reasoning.pack(fill="both", expand=True)
+
+        self._history_images = []  
+        self._refresh_history()
+
+    def _refresh_history(self):
+        self.hist_listbox.delete(0, "end")
+        self._hist_data = load_history()
+        for e in self._hist_data:
+            self.hist_listbox.insert("end", f"  {e['time'][11:16]}  →  {e['answer'][:12]}")
+        if self._hist_data:
+            self.hist_listbox.selection_set(0)
+            self._on_history_select(None)
+
+    def _on_history_select(self, event):
+        import PIL.ImageTk as ImageTk
+        sel = self.hist_listbox.curselection()
+        if not sel:
+            return
+        e = self._hist_data[sel[0]]
+
+  
+        try:
+            img_data = base64.b64decode(e["image_b64"])
+            img = Image.open(io.BytesIO(img_data))
+            img.thumbnail((260, 120))
+            photo = ImageTk.PhotoImage(img)
+            self.hist_img_label.config(image=photo)
+            self._history_images = [photo]
+        except Exception:
+            self.hist_img_label.config(image="", text="[No image]")
+
+        # Show answer
+        self.hist_answer_label.config(text=f"Answer: {e['answer']}")
+
+        # Show reasoning
+        self.hist_reasoning.config(state="normal")
+        self.hist_reasoning.delete("1.0", "end")
+        self.hist_reasoning.insert("end", e.get("reasoning", ""))
+        self.hist_reasoning.config(state="disabled")
+
+    def _clear_history(self):
+        try:
+            with open(HISTORY_FILE, "w") as f:
+                json.dump([], f)
+            self._refresh_history()
+            self.hist_img_label.config(image="", text="")
+            self.hist_answer_label.config(text="")
+            self.hist_reasoning.config(state="normal")
+            self.hist_reasoning.delete("1.0", "end")
+            self.hist_reasoning.config(state="disabled")
+        except Exception:
+            pass
+
     def _run_loop(self):
         awaiting_next_button = False
         self.safe_log("Starting in 3 seconds — switch to your browser now...", "gold")
@@ -646,6 +872,7 @@ class App(tk.Tk):
                     self.safe_log("Calling AI...", "muted")
                     answer, reasoning = ask_ai(image, self.model_var.get(), self.max_tokens_var.get())
 
+                    # Log the model's reasoning so you can audit it
                     for line in reasoning.strip().splitlines():
                         self.safe_log(f"  {line}", "muted")
                     self.safe_log(f"→ Answer: {answer}", "gold")
@@ -653,6 +880,15 @@ class App(tk.Tk):
                     self.safe_log("Attempting to find text box and submit...", "muted")
                     if submit_answer(answer, 'SubmitAnswer.png'):
                         self.safe_log("Answer submitted. Clicking Next...", "green")
+                        # Save to history
+                        entry = {
+                            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "answer": answer,
+                            "reasoning": reasoning,
+                            "image_b64": img_to_b64(image)
+                        }
+                        threading.Thread(target=save_history_entry, args=(entry,), daemon=True).start()
+                        self.after(0, self._refresh_history)
                         awaiting_next_button = True
                         time.sleep(1.5)
                     else:
@@ -664,7 +900,7 @@ class App(tk.Tk):
                     for _ in range(4):
                         pyautogui.click(nx, ny)
                         time.sleep(0.5)
-                    awaiting_next_button = False
+                    awaiting_next_button = False  # ← fixed: reset so next question gets solved
 
             except Exception as e:
                 self.safe_log(f"Error: {e}", "red")
@@ -689,7 +925,6 @@ def register_user(username, password):
         )
         if r.status_code == 200 and len(r.json()) > 0:
             return False, "Username already taken."
-
         r2 = requests.post(
             f"{SUPABASE_URL}/rest/v1/users",
             headers={
@@ -713,7 +948,7 @@ class LoginWindow(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("DeltaMath Macro — Login")
-        self.geometry("360x300")
+        self.geometry("600x600")
         self.resizable(True, True)
         self.configure(bg=BG)
         self.success = False
@@ -761,7 +996,6 @@ class LoginWindow(tk.Tk):
     def _show_login(self):
         self.subtitle.config(text="Sign in to continue")
         self._clear_body()
-        self.geometry("500x500")
         p = self.body_frame
 
         self.u = self._field(p, "USERNAME")
@@ -802,8 +1036,10 @@ class LoginWindow(tk.Tk):
     def _show_register(self):
         self.subtitle.config(text="Create an account")
         self._clear_body()
-        self.geometry("500x500")
+        self.geometry("360x340")
         p = self.body_frame
+
+        self.ru = self._field(p, "USERNAME")
         self.ru.focus()
         self.rpw = self._field(p, "PASSWORD", show="•")
         self.rpw2 = self._field(p, "CONFIRM PASSWORD", show="•")
@@ -840,6 +1076,7 @@ class LoginWindow(tk.Tk):
 
     def _on_register(self, ok, msg):
         if ok:
+            # Auto-login after successful registration
             self.success = True
             self.destroy()
         else:
