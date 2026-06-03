@@ -29,6 +29,9 @@
 * ### ✖️ Cannot do multiple choice as DeltaMath has varying amounts of choices 
 * ### ✖️Cannot do questions with multiple text boxes (more than one answer)
 
+  ##  📜 Research Paper 
+* ### https://tyde.virginia.edu/digital-homework-the-overlooked-teen-crisis-of-academic-burnout/ 
+
 ## 👥 Contributions 
 
 * ### Backend - [@jimmyli123789](https://github.com/jimmyli123789)
