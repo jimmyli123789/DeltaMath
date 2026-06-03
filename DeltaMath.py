@@ -50,8 +50,8 @@ OPENROUTER_API_KEY = ""
 MODEL = ""
 
 # ── Supabase Auth Config ──────────────────────────────────────────────────────
-SUPABASE_URL = ""   
-SUPABASE_KEY = ""                    
+SUPABASE_URL = "https://ovoghjmbsgzwpkarqpck.supabase.co"   
+SUPABASE_KEY = "sb_publishable_tGcnazeLuPqowzhwSkuYXw_bwHKrSzA"                    
 
 
 def check_credentials(username, password):
@@ -220,7 +220,7 @@ def ask_ai(image, model, max_tokens=500):
     return answer, reasoning
 
 
-def click_nextButton(image, confidence_level=0.5):
+def click_nextButton(image, confidence_level=0.8):
     print("Scanning screen for Next button...")
     try:
         button_loc = pyautogui.locateCenterOnScreen(image, confidence=confidence_level)
@@ -232,7 +232,7 @@ def click_nextButton(image, confidence_level=0.5):
     return False
 
 
-def click_textBox(image, confidence_level=0.5):
+def click_textBox(image, confidence_level=0.8):
     print("Scanning screen for Submit button offset...")
     try:
         button_loc = pyautogui.locateCenterOnScreen(image, confidence=confidence_level)
@@ -341,7 +341,7 @@ class App(tk.Tk):
         info = tk.Frame(left, bg="#0d0d0d")
         info.pack(side="left", padx=8)
         tk.Label(info, text="Deltamath Automation", bg="#0d0d0d", fg=TEXT, font=("Lucida Console", 10, "bold")).pack(anchor="w")
-        tk.Label(info, text="Jimmy Li & Big chud liam", bg="#0d0d0d", fg=MUTED, font=FONT_SM).pack(anchor="w")
+        tk.Label(info, text="Jimmy Li & Liam", bg="#0d0d0d", fg=MUTED, font=FONT_SM).pack(anchor="w")
 
         self.ontop_var = tk.BooleanVar(value=True)
         ontop_btn = tk.Button(bar, text="⊞ On Top: ON", bg="#0d0d0d", fg=GOLD,
