@@ -39,7 +39,11 @@
 * ### Solved this problem throughout the entire program (everything was meant to make it easier to complete homwork) 
 
 ## 🤖 Working with an AI Agent - Jimmy 
-* ### I specifically used the agent / AI to set up the calls and requets with openrouter. I also used the agent / AI to learn about the image recognition via pyautogui (locatecenteronscreen) which assisted me in creating a core part of the project. I  prompted the agent / AI to figure out a way to detect an image on a screen and click on that image. The agent saved me tons of time in terms of also creating prompts to parse out the responses from the API. Deltamath requires a specific syntax, and allowing an agent to write me prompts that parses the syntax into Deltamath format was very helpful. The agent didn't work well when I wasn't specific enough, it created a product that I didn't intend to produce. I learned that prompting isn't just asking the AI / Agent to do something, but it is also about how to prompt it so that tokens aren't wasted. If I was doing another project regarding an agent, I would definetly start to prompt it to use less characters on my end and the outputs end. Furthermore, I've looked into a tool that compresses prompts to allow more [efficient prompting](https://github.com/microsoft/markitdown) 
+* ### I specifically used the agent / AI to set up the calls and requets with openrouter. I also used the agent / AI to learn about the image recognition via pyautogui (locatecenteronscreen) which assisted me in creating a core part of the project. I  prompted the agent / AI to figure out a way to detect an image on a screen and click on that image.
+* ###  The agent saved me tons of time in terms of also creating prompts to parse out the responses from the API. Deltamath requires a specific syntax, and allowing an agent to write me prompts that parses the syntax into Deltamath format was very helpful.
+* ###  The agent didn't work well when I wasn't specific enough, it created a product that I didn't intend to produce.
+* ###  I learned that prompting isn't just asking the AI / Agent to do something, but it is also about how to prompt it so that tokens aren't wasted.
+* ### If I was doing another project regarding an agent, I would definetly start to prompt it to use less characters on my end and the outputs end. Furthermore, I've looked into a tool that compresses prompts to allow more [efficient prompting](https://github.com/microsoft/markitdown) 
 
 ## 👥 Contributions 
 
