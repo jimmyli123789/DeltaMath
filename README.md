@@ -11,6 +11,10 @@
 * ### 📋 Copy pastes the answer onto text box via pyperclip 
 * ### ➡️ Goes onto the next problem 
 
+## 📹 Video Demo
+* ### [❓Question Demo](https://youtu.be/cHFwtmW1URo)
+* ### [⚙️Interface Demo](https://youtu.be/bM1w4NjWygk)
+
 ## ✨ Features 
  
 * ### 🔧 Users can select their own model 
@@ -29,8 +33,10 @@
 * ### ✖️ Cannot do multiple choice as DeltaMath has varying amounts of choices 
 * ### ✖️Cannot do questions with multiple text boxes (more than one answer)
 
-  ##  📜 Research Paper 
+##  📜 Research Paper 
 * ### https://tyde.virginia.edu/digital-homework-the-overlooked-teen-crisis-of-academic-burnout/ 
+* ### Research paper mentioned that tons of homework --->  burnout
+* ### Solved this problem throughout the entire program (everything was meant to make it easier to complete homwork) 
 
 ## 👥 Contributions 
 
