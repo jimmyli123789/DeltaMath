@@ -44,6 +44,12 @@
 * ###  The agent didn't work well when I wasn't specific enough, it created a product that I didn't intend to produce.
 * ###  I learned that prompting isn't just asking the AI / Agent to do something, but it is also about how to prompt it so that tokens aren't wasted.
 * ### If I was doing another project regarding an agent, I would definetly start to prompt it to use less characters on my end and the outputs end. Furthermore, I've looked into a tool that compresses prompts to allow more [efficient prompting](https://github.com/microsoft/markitdown) 
+## 🤖 Working with an AI Agent - Liam 
+  * ###  
+  * ###
+  * ###
+  * ###
+  * ###
 
 ## 👥 Contributions 
 
