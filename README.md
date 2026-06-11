@@ -45,11 +45,11 @@
 * ###  I learned that prompting isn't just asking the AI / Agent to do something, but it is also about how to prompt it so that tokens aren't wasted.
 * ### If I was doing another project regarding an agent, I would definetly start to prompt it to use less characters on my end and the outputs end. Furthermore, I've looked into a tool that compresses prompts to allow more [efficient prompting](https://github.com/microsoft/markitdown) 
 ## 🤖 Working with an AI Agent - Liam 
-  * ###  
-  * ###
-  * ###
-  * ###
-  * ###
+  * ###  TThe agent helped with a variety of issues, but the main ones were explaining how to design the front end and doing certain mundane coding tasks for us instead of us wasting time on basic things, like centering or color. We gave it the constraints of the project, so it mostly helped through its teaching on how to use certain aspects of the code as we coded it ourselves.
+  * ### The agent was very useful for explaining new concepts, like the design of the app and how to format it. This required learning how to code on the frontend a bit, but it was a good experience, and the agent helped smooth out the errors I had as I coded.
+  * ### The agent often gave us code or ideas that didn't align with our goals or the project we were making, so we often had to repeat the constraints and the idea of our project to help it get back on track. Additionally, the code it gave us sometimes conflicted with other parts of our code, so we had to spend some time helping it there.
+  * ### When prompting, be as specific as possible. When asking it for help, make sure you are in the same chat as all of the previous messages, so it can reference previous topics to give it context without wasting time typing out the context yourself. Getting the prompt right for how it formats the answers in the DeltaMath answer box required a lot of trial and error, but once you find the pattern, it becomes simple to get the AI to do exactly what you want.
+  * ### I think getting the AI to understand the context of its help and purpose in this project immediately would have saved us a lot of time. We wasted a lot of time prompting, realizing it was wrong, then changing the wording of the prompt over and over. If we had given it the overall context as a whole, it would have saved us a lot of time.
 
 ## 👥 Contributions 
 
