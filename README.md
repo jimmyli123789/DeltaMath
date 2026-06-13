@@ -1,7 +1,9 @@
 # DeltaMath Automation 
 
 ## 🔑 How to access it   
-* ### 📁 Download the folder 
+* ### 🐍 Have python installed 
+* ### 📁 Download the zip folder through "releases" 
+* ### ▶️ Run the batch file  
 * ### ➕ Create an account
 
 ## ⚡ What it does 
